@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]                                  # PEP 621 metadata
+name = "optical-testing-analysis"           # distribution / PyPI name
+version = "0.1.0"
+description = "Analysis tools for optical characterization of image sensors"
+readme = "README.md"
+requires-python = ">=3.9"
+#license = {file = "LICENSE"}
+authors = [{name = "Nate Lourie", email = "nlourie@mit.edu"}]
+keywords = ["optical testing", "characterization", "quantum efficientcy"]
+
+dependencies = [
+  "numpy",
+  "scipy",
+  "matplotlib",
+  "pandas",
+  "ipykernel",
+  "photutils",
+  "astroquery",
+  "astropy",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest",
+  "ruff",
+  "black",
+]
+
+[tool.setuptools]                          # setuputils-specific conf
+package-dir = {"" = "src"}                 # src-layout
+packages = ["analysis"]                   # explicitly list or use find-namespace
