@@ -129,3 +129,186 @@ def write_image(image, filename, header=None, overwrite=True):
     os.makedirs(os.path.dirname(filename), exist_ok=True)
     hdu = fits.PrimaryHDU(image, header=header)
     hdu.writeto(filename, overwrite=overwrite)
+
+
+# Plotting method for histogram
+def histogram_peak_in_band(
+    data: np.ndarray,
+    mask: np.ndarray | None = None,
+    bins: int = 100,
+    freq_thresh: int = 0,
+    value_min: float = -np.inf,
+    value_max: float = np.inf,
+):
+    """
+    Compute the peak bin center within a value and frequency band.
+
+    Returns
+    -------
+    peak_value : float
+        Bin center with the highest count among selected bins, or np.nan if none.
+    hist : np.ndarray
+        Histogram counts.
+    edges : np.ndarray
+        Histogram bin edges.
+    bin_centers : np.ndarray
+        Centers of the bins.
+    selected_bins : np.ndarray (bool)
+        True for bins that were considered (within band and above freq_thresh).
+    """
+    if mask is not None:
+        values = data[mask].ravel()
+    else:
+        values = data.ravel()
+
+    values = values[np.isfinite(values)]
+    if values.size == 0:
+        return np.nan, None, None, None, None
+
+    hist, edges = np.histogram(values, bins=bins)
+    bin_centers = 0.5 * (edges[:-1] + edges[1:])
+
+    selected_bins = (
+        (bin_centers >= value_min) & (bin_centers <= value_max) & (hist >= freq_thresh)
+    )
+
+    if not np.any(selected_bins):
+        peak_value = np.nan
+    else:
+        # argmax only over selected bins
+        idx_local = np.argmax(hist[selected_bins])
+        idx_global = np.where(selected_bins)[0][idx_local]
+        peak_value = float(bin_centers[idx_global])
+
+    return peak_value, hist, edges, bin_centers, selected_bins
+
+
+# Plot the histogram of an image
+def plot_hist(ax, hist, edges, centers, selected, peak_val, band_min, band_max, title):
+    if hist is None:
+        ax.set_title(title + "\n(no data)")
+        return
+
+    width = edges[1] - edges[0]
+    # Full histogram
+    ax.bar(centers, hist, width=width, align="center", alpha=0.5, label="all bins")
+
+    # Highlight the bins used for the peak search
+    ax.bar(
+        centers[selected],
+        hist[selected],
+        width=width,
+        align="center",
+        alpha=0.8,
+        color="C1",
+        label="used for peak",
+    )
+
+    # Shade the value band we requested
+    ax.axvspan(band_min, band_max, color="C2", alpha=0.1, label="value band")
+
+    if np.isfinite(peak_val):
+        ax.axvline(peak_val, color="r", linestyle="--", linewidth=1, label="peak")
+
+    ax.set_title(title)
+    ax.set_xlabel("Pixel Value")
+    ax.set_ylabel("Frequency")
+    ax.legend()
+
+
+def plot_image_with_histogram(
+    data,
+    title=None,
+    bad_mask=None,
+    band_min=15000,
+    band_max=50000,
+    bins=100,
+    freq_thresh=10,
+):
+    """
+    Plot an image and its histogram with peak detection.
+
+    Parameters
+    ----------
+    data : numpy.ndarray
+        Image data to plot
+    title : str, optional
+        Title for the plot (default: None)
+    bad_mask : numpy.ndarray, optional
+        Boolean mask of bad pixels (default: None, creates default mask)
+    band_min : float, optional
+        Minimum value for histogram peak search (default: 15000)
+    band_max : float, optional
+        Maximum value for histogram peak search (default: 50000)
+    bins : int, optional
+        Number of bins for histogram (default: 100)
+    freq_thresh : int, optional
+        Minimum frequency threshold for bins to be considered (default: 10)
+    Returns
+    -------
+    dict
+        Dictionary containing:
+        - 'peak_value': histogram peak value in DN
+        - 'fig': matplotlib figure object
+        - 'axes': matplotlib axes objects
+    """
+    # Apply the bad pixel mask
+    if bad_mask is None:
+        # bad_mask = make_bad_mask(data.shape, active='even', col_phase=2, invert=False)
+        bad_mask = np.zeros_like(data, dtype=bool)
+
+    # Calculate histogram peak
+    peak_value, hist, edges, centers, selected = histogram_peak_in_band(
+        data,
+        mask=~bad_mask,
+        bins=bins,
+        freq_thresh=freq_thresh,
+        value_min=band_min,
+        value_max=band_max,
+    )
+
+    # Create plots
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+
+    # Plot the image with bad pixels masked
+    ax = axes[1]
+    """data_plot = data.copy()
+    data_plot[bad_mask] = np.nan
+    im = ax.imshow(
+        data_plot,
+        cmap="gray",
+        vmin=np.percentile(data, 1),
+        vmax=np.percentile(data, 99),
+    )
+    cbar = fig.colorbar(im, ax=ax)
+    cbar.set_label("DN")"""
+    plot_image(
+        data,
+        ax=ax,
+        norm="zscale",
+        # title="Image (bad pixels masked)",
+    )
+
+    # Plot histogram
+    hist_title = (
+        f"Histogram of image: Peak in [{band_min}, {band_max}] is {peak_value:.1f} DN"
+    )
+    plot_hist(
+        axes[0],
+        hist,
+        edges,
+        centers,
+        selected,
+        peak_value,
+        band_min,
+        band_max,
+        hist_title,
+    )
+
+    if title:
+        plt.suptitle(title)
+
+    plt.tight_layout()
+    plt.show()
+
+    return {"peak_value": peak_value, "fig": fig, "axes": axes}

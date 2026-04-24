@@ -434,9 +434,98 @@ class PTCAnalyzer:
 
         return slope_image, intercept_image, gain_image
 
-    def plot_gain_histogram(
-        self, slope_image: np.ndarray, gain_image: np.ndarray, nominal_gain: float = 4.2
-    ):
+    def plot_gain_histogram(self, gain_image: np.ndarray, nominal_gain: float = 4.2):
+        """
+        Plot histogram of gains with analysis
+        """
+        fig, ax = plt.subplots(figsize=(10, 6))
+
+        # Create histogram
+        gain_flat = np.ravel(gain_image[~np.isnan(gain_image)])
+        hist, bins = np.histogram(gain_flat, bins=1000, range=(0, 10))
+        bin_centers = (bins[:-1] + bins[1:]) / 2
+
+        ax.semilogy(bin_centers, hist, ".", alpha=0.5, label="Data")
+        ax.set_title("Pixel-wise PTC: Gain Histogram")
+
+        # Fit spline to histogram peak region
+        hist_clipcond = hist > 100
+        if np.any(hist_clipcond):
+            xhist_clip = bin_centers[hist_clipcond]
+            yhist_clip = hist[hist_clipcond]
+
+            # Spline fit
+            cs = CubicSpline(xhist_clip, yhist_clip)
+            xhist_fine = np.linspace(xhist_clip[0], xhist_clip[-1], 1000)
+            yhist_fine = cs(xhist_fine)
+            ax.plot(xhist_fine, yhist_fine, "r-", label="Spline Fit")
+
+            # Find peak
+            peak_idx = np.argmax(yhist_fine)
+            peak_x = xhist_fine[peak_idx]
+            peak_y = yhist_fine[peak_idx]
+
+            print(f"Peak Gain = {peak_x:.3f} ADU/e")
+            print(f"Peak Slope = {1/peak_x:.3f} e/ADU")
+
+            ax.axvline(
+                peak_x,
+                color="k",
+                linestyle="--",
+                label=f"Peak: Gain={peak_x:.3f}, Slope={1/peak_x:.3f} e/ADU",
+            )
+
+            # Calculate FWHM
+            half_max = peak_y / 2
+            indices_above_half = np.where(yhist_fine > half_max)[0]
+            if len(indices_above_half) > 0:
+                left_idx = indices_above_half[0]
+                right_idx = indices_above_half[-1]
+                fwhm = xhist_fine[right_idx] - xhist_fine[left_idx]
+                std_from_fwhm = fwhm / 2.355
+
+                print(f"FWHM = {fwhm:.3f}")
+                print(f"Std from FWHM = {std_from_fwhm:.3f}")
+
+                ax.axvline(peak_x - fwhm / 2, color="b", linestyle="--", alpha=0.5)
+                ax.axvline(
+                    peak_x + fwhm / 2,
+                    color="b",
+                    linestyle="--",
+                    alpha=0.5,
+                    label=f"FWHM={fwhm:.3f}",
+                )
+
+                # Plot 3-sigma lines
+                N = 3
+                ax.axvline(
+                    peak_x - N * std_from_fwhm, color="m", linestyle="--", alpha=0.5
+                )
+                ax.axvline(
+                    peak_x + N * std_from_fwhm,
+                    color="m",
+                    linestyle="--",
+                    alpha=0.5,
+                    label=f"±{N}σ = ±{N*std_from_fwhm:.3f}",
+                )
+
+        # Plot nominal gain
+        ax.axvline(
+            nominal_gain,
+            color="g",
+            linestyle="--",
+            label=f"Nominal: Gain={nominal_gain:.1f} e/ADU",
+        )
+
+        ax.set_xlabel("Gain (e/ADU)")
+        ax.set_ylabel("Number of pixels")
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+
+        plt.tight_layout()
+        return fig
+
+    def plot_slope_histogram(self, slope_image: np.ndarray, nominal_gain: float = 4.2):
         """
         Plot histogram of gains with analysis
         """
@@ -449,11 +538,6 @@ class PTCAnalyzer:
 
         ax.semilogy(bin_centers, hist, ".", alpha=0.5, label="Data")
         ax.set_title("Pixel-wise PTC: Slope Histogram (Inverse Gain)")
-
-        # Calculate median gain
-        median_gain = np.nanmedian(gain_image[~np.isnan(gain_image)])
-        print(f"Median gain = {median_gain:.3f} e/ADU")
-        print(f"1/median gain = {1/median_gain:.3f} ADU/e")
 
         # Fit spline to histogram peak region
         hist_clipcond = hist > 100
