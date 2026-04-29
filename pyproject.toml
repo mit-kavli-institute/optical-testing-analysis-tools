@@ -30,6 +30,5 @@ dev = [
   "black",
 ]
 
-[tool.setuptools]                          # setuputils-specific conf
-package-dir = {"" = "src"}                 # src-layout
-packages = ["analysis"]                   # explicitly list or use find-namespace
+[tool.setuptools.packages.find]
+where = ["src"]
